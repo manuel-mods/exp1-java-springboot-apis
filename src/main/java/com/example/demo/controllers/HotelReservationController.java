@@ -1,65 +1,109 @@
 package com.example.demo.controllers;
 
+import com.example.demo.entity.HotelReservation;
+import com.example.demo.repository.HotelReservationRepository;
+
+import ch.qos.logback.classic.Logger;
+import lombok.extern.log4j.Log4j;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import com.example.demo.dtos.HotelReservation;
-
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
+import java.sql.Date;
+import java.util.List;
+import java.util.Optional;
 
 @RestController
+@RequestMapping("/reservations")
+@Validated
 public class HotelReservationController {
-    ArrayList<HotelReservation> reservations = new ArrayList<>();
 
-    HotelReservationController() {
-        reservations.add(new HotelReservation(1, 101, "Carlos Muñoz", "2024-09-01", "2024-09-05"));
-        reservations.add(new HotelReservation(2, 102, "Ana Pérez", "2024-09-05", "2024-09-10"));
-        reservations.add(new HotelReservation(3, 103, "Pedro González", "2024-09-10", "2024-09-15"));
-        reservations.add(new HotelReservation(4, 104, "Luis Rodríguez", "2024-09-15", "2024-09-20"));
-        reservations.add(new HotelReservation(5, 105, "Josefa Fernández", "2024-09-20", "2024-09-25"));
-        reservations.add(new HotelReservation(6, 106, "Matías Rojas", "2024-09-25", "2024-09-30"));
-        reservations.add(new HotelReservation(7, 107, "Sebastián Díaz", "2024-10-01", "2024-10-05"));
-        reservations.add(new HotelReservation(8, 108, "Isidora Valdés", "2024-10-05", "2024-10-10"));
-    }
+    @Autowired
+    private HotelReservationRepository reservationRepository;
 
-    @GetMapping("/reservations")
-    public ResponseEntity<ArrayList<HotelReservation>> getReservations() {
+    // Obtener todas las reservas
+    @GetMapping
+    public ResponseEntity<List<HotelReservation>> getAllReservations() {
+
+        List<HotelReservation> reservations = reservationRepository.findAll();
         return ResponseEntity.ok(reservations);
     }
 
-    @GetMapping("/reservations/{id}")
-    public ResponseEntity<HotelReservation> getReservationById(@PathVariable("id") int reservationId) {
-        for (HotelReservation reservation : reservations) {
-            if (reservation.getId() == reservationId) {
-                return ResponseEntity.ok(reservation);
-            }
-        }
-        return ResponseEntity.notFound().build();
+    // Obtener una reserva por ID
+    @GetMapping("/{id}")
+    public ResponseEntity<HotelReservation> getReservationById(@PathVariable Integer id) {
+        Optional<HotelReservation> reservation = reservationRepository.findById(id);
+        return reservation.map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
+    // Crear una nueva reserva
+    @PostMapping
+    public ResponseEntity<HotelReservation> createReservation(@RequestBody HotelReservation reservation) {
+
+        // Verificar disponibilidad
+        List<HotelReservation> conflictingReservations = reservationRepository
+                .findByRoomNumberAndCheckInDateBeforeAndCheckOutDateAfter(
+                        reservation.getRoomNumber(),
+                        reservation.getCheckOutDate(),
+                        reservation.getCheckInDate());
+        if (!conflictingReservations.isEmpty()) {
+            // message = "La habitación no está disponible en las fechas seleccionadas"
+            return ResponseEntity.badRequest().build();
+
+        }
+
+        HotelReservation savedReservation = reservationRepository.save(reservation);
+        return ResponseEntity.ok(savedReservation);
+    }
+
+    // Actualizar una reserva existente
+    @PutMapping("/{id}")
+    public ResponseEntity<HotelReservation> updateReservation(@PathVariable Integer id,
+            @RequestBody HotelReservation reservationDetails) {
+        Optional<HotelReservation> reservationOptional = reservationRepository.findById(id);
+
+        if (!reservationOptional.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        HotelReservation reservation = reservationOptional.get();
+        reservation.setRoomNumber(reservationDetails.getRoomNumber());
+        reservation.setGuestName(reservationDetails.getGuestName());
+        reservation.setCheckInDate(reservationDetails.getCheckInDate());
+        reservation.setCheckOutDate(reservationDetails.getCheckInDate());
+
+        HotelReservation updatedReservation = reservationRepository.save(reservation);
+        return ResponseEntity.ok(updatedReservation);
+    }
+
+    // Eliminar una reserva
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteReservation(@PathVariable Integer id) {
+        Optional<HotelReservation> reservation = reservationRepository.findById(id);
+
+        if (!reservation.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        reservationRepository.delete(reservation.get());
+        return ResponseEntity.noContent().build();
+    }
+
+    // Verificar disponibilidad
     @GetMapping("/availability")
-    public ResponseEntity<Boolean> checkAvailability(@RequestParam int roomNumber, @RequestParam String checkInDate, @RequestParam String checkOutDate) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-        LocalDate checkIn = LocalDate.parse(checkInDate, formatter);
-        LocalDate checkOut = LocalDate.parse(checkOutDate, formatter);
+    public ResponseEntity<Boolean> checkAvailability(
+            @RequestParam Integer roomNumber,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) Date checkInDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) Date checkOutDate) {
 
-        for (HotelReservation reservation : reservations) {
-            LocalDate reservedCheckIn = LocalDate.parse(reservation.getCheckInDate(), formatter);
-            LocalDate reservedCheckOut = LocalDate.parse(reservation.getCheckOutDate(), formatter);
+        List<HotelReservation> conflictingReservations = reservationRepository
+                .findByRoomNumberAndCheckInDateBeforeAndCheckOutDateAfter(roomNumber, checkOutDate, checkInDate);
 
-            if (reservation.getRoomNumber() == roomNumber &&
-                (checkIn.isBefore(reservedCheckOut) && checkOut.isAfter(reservedCheckIn))) {
-                return ResponseEntity.ok(false); // No disponible
-            }
-        }
-        return ResponseEntity.ok(true); // Disponible
-    }
-
-    @PostMapping("/reservations")
-    public ResponseEntity<HotelReservation> addReservation(@RequestBody HotelReservation reservation) {
-        reservations.add(reservation);
-        return ResponseEntity.ok(reservation);
+        boolean isAvailable = conflictingReservations.isEmpty();
+        return ResponseEntity.ok(isAvailable);
     }
 }
