@@ -23,10 +23,11 @@ public class PetOrder implements Serializable {
     public PetOrder() {
     }
 
-    public PetOrder(String productName, Integer quantity, String orderStatus) {
+    public PetOrder(Integer id, String productName, Integer quantity, String orderStatus) {
         this.productName = productName;
         this.quantity = quantity;
         this.orderStatus = orderStatus;
+        this.id = id;
     }
 
     public String getProductName() {
@@ -51,5 +52,12 @@ public class PetOrder implements Serializable {
 
     public void setOrderStatus(String orderStatus) {
         this.orderStatus = orderStatus;
+    }
+
+    public void setId(Integer id) {
+        this.id = id;
+    }
+    public Integer getId() {
+        return id;
     }
 }

@@ -3,85 +3,89 @@ package com.example.demo.controllers;
 import com.example.demo.entity.PetOrder;
 import com.example.demo.repository.PetOrderRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.hateoas.EntityModel;
+import org.springframework.hateoas.Link;
+import org.springframework.hateoas.server.mvc.WebMvcLinkBuilder;
+import org.springframework.hateoas.CollectionModel;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/orders")
-@Validated
 public class PetOrderController {
 
     @Autowired
     private PetOrderRepository orderRepository;
 
-    // Obtener todas las órdenes
+    // Obtener todas las órdenes con enlaces HATEOAS
     @GetMapping
-    public ResponseEntity<List<PetOrder>> getAllOrders() {
-        List<PetOrder> orders = orderRepository.findAll();
-        return ResponseEntity.ok(orders);
+    public ResponseEntity<CollectionModel<EntityModel<PetOrder>>> getAllOrders() {
+        List<EntityModel<PetOrder>> orders = ((List<PetOrder>) orderRepository.findAll())
+                .stream()
+                .map(order -> toModel(order))
+                .collect(Collectors.toList());
+
+        // Agregar enlace a la colección de órdenes
+        CollectionModel<EntityModel<PetOrder>> collectionModel = CollectionModel.of(orders);
+        collectionModel.add(WebMvcLinkBuilder.linkTo(WebMvcLinkBuilder.methodOn(PetOrderController.class).getAllOrders()).withSelfRel());
+        return ResponseEntity.ok(collectionModel);
     }
 
-    // Obtener una orden por ID
+    // Obtener una orden por ID con enlaces HATEOAS
     @GetMapping("/{id}")
-    public ResponseEntity<PetOrder> getOrderById(@PathVariable Integer id) {
-        Optional<PetOrder> order = orderRepository.findById(id);
-        return order.map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    // Crear una nueva orden
-    @PostMapping
-    public ResponseEntity<PetOrder> createOrder(@RequestBody PetOrder order) {
-        PetOrder savedOrder = orderRepository.save(order);
-        return ResponseEntity.ok(savedOrder);
-    }
-
-    // Actualizar una orden existente
-    @PutMapping("/{id}")
-    public ResponseEntity<PetOrder> updateOrder(@PathVariable Integer id, @RequestBody PetOrder orderDetails) {
-        Optional<PetOrder> orderOptional = orderRepository.findById(id);
-
-        if (!orderOptional.isPresent()) {
-            return ResponseEntity.notFound().build();
+    public ResponseEntity<EntityModel<PetOrder>> getOrderById(@PathVariable Integer id) {
+        Optional<PetOrder> orderOpt = orderRepository.findById(id);
+        if (orderOpt.isPresent()) {
+            return ResponseEntity.ok(toModel(orderOpt.get()));
         }
-
-        PetOrder order = orderOptional.get();
-        order.setProductName(orderDetails.getProductName());
-        order.setQuantity(orderDetails.getQuantity());
-        order.setOrderStatus(orderDetails.getOrderStatus());
-
-        PetOrder updatedOrder = orderRepository.save(order);
-        return ResponseEntity.ok(updatedOrder);
+        return ResponseEntity.notFound().build();
     }
 
-    // Eliminar una orden
+    // Agregar una nueva orden con enlaces HATEOAS
+    @PostMapping
+    public ResponseEntity<EntityModel<PetOrder>> addOrder(@RequestBody PetOrder newOrder) {
+        PetOrder order = orderRepository.save(newOrder);
+        return ResponseEntity.ok(toModel(order));
+    }
+
+    // Actualizar una orden existente con enlaces HATEOAS
+    @PutMapping("/{id}")
+    public ResponseEntity<EntityModel<PetOrder>> updateOrder(@PathVariable Integer id, @RequestBody PetOrder updatedOrder) {
+        Optional<PetOrder> existingOrderOpt = orderRepository.findById(id);
+        if (existingOrderOpt.isPresent()) {
+            updatedOrder.setId(id);
+            PetOrder updated = orderRepository.save(updatedOrder);
+            return ResponseEntity.ok(toModel(updated));
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    // Eliminar una orden con enlaces HATEOAS
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteOrder(@PathVariable Integer id) {
-        Optional<PetOrder> order = orderRepository.findById(id);
-
-        if (!order.isPresent()) {
-            return ResponseEntity.notFound().build();
+        if (orderRepository.existsById(id)) {
+            orderRepository.deleteById(id);
+            return ResponseEntity.noContent().build();
         }
-
-        orderRepository.delete(order.get());
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.notFound().build();
     }
 
-    // Buscar órdenes por estado
-    @GetMapping("/status/{status}")
-    public ResponseEntity<List<PetOrder>> getOrdersByStatus(@PathVariable String status) {
-        List<PetOrder> orders = orderRepository.findByOrderStatus(status);
-        return ResponseEntity.ok(orders);
-    }
+    // Método auxiliar para convertir una entidad en EntityModel con enlaces HATEOAS
+    private EntityModel<PetOrder> toModel(PetOrder order) {
+        EntityModel<PetOrder> resource = EntityModel.of(order);
 
-    // Buscar órdenes por nombre de producto
-    @GetMapping("/search")
-    public ResponseEntity<List<PetOrder>> searchOrdersByProductName(@RequestParam String productName) {
-        List<PetOrder> orders = orderRepository.findByProductNameContainingIgnoreCase(productName);
-        return ResponseEntity.ok(orders);
+        // Enlace a sí mismo
+        Link selfLink = WebMvcLinkBuilder.linkTo(WebMvcLinkBuilder.methodOn(PetOrderController.class).getOrderById(order.getId())).withSelfRel();
+        resource.add(selfLink);
+
+        // Enlace a la colección de órdenes
+        Link ordersLink = WebMvcLinkBuilder.linkTo(WebMvcLinkBuilder.methodOn(PetOrderController.class).getAllOrders()).withRel("orders");
+        resource.add(ordersLink);
+
+        return resource;
     }
 }

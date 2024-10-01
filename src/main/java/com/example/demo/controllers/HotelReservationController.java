@@ -2,108 +2,91 @@ package com.example.demo.controllers;
 
 import com.example.demo.entity.HotelReservation;
 import com.example.demo.repository.HotelReservationRepository;
-
-import ch.qos.logback.classic.Logger;
-import lombok.extern.log4j.Log4j;
-
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.hateoas.EntityModel;
+import org.springframework.hateoas.Link;
+import org.springframework.hateoas.server.mvc.WebMvcLinkBuilder;
+import org.springframework.hateoas.server.mvc.RepresentationModelAssemblerSupport;
+import org.springframework.hateoas.CollectionModel;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.sql.Date;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/reservations")
-@Validated
 public class HotelReservationController {
 
     @Autowired
     private HotelReservationRepository reservationRepository;
 
-    // Obtener todas las reservas
+    // Obtener todas las reservas con enlaces HATEOAS
     @GetMapping
-    public ResponseEntity<List<HotelReservation>> getAllReservations() {
+    public ResponseEntity<CollectionModel<EntityModel<HotelReservation>>> getAllReservations() {
+        List<EntityModel<HotelReservation>> reservations = ((List<HotelReservation>) reservationRepository.findAll())
+                .stream()
+                .map(reservation -> toModel(reservation))
+                .collect(Collectors.toList());
 
-        List<HotelReservation> reservations = reservationRepository.findAll();
-        return ResponseEntity.ok(reservations);
+        // Agregar enlace a la colección de reservas
+        CollectionModel<EntityModel<HotelReservation>> collectionModel = CollectionModel.of(reservations);
+        collectionModel.add(WebMvcLinkBuilder.linkTo(WebMvcLinkBuilder.methodOn(HotelReservationController.class).getAllReservations()).withSelfRel());
+        return ResponseEntity.ok(collectionModel);
     }
 
-    // Obtener una reserva por ID
+    // Obtener una reserva por ID con enlaces HATEOAS
     @GetMapping("/{id}")
-    public ResponseEntity<HotelReservation> getReservationById(@PathVariable Integer id) {
-        Optional<HotelReservation> reservation = reservationRepository.findById(id);
-        return reservation.map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<EntityModel<HotelReservation>> getReservationById(@PathVariable Integer id) {
+        Optional<HotelReservation> reservationOpt = reservationRepository.findById(id);
+        if (reservationOpt.isPresent()) {
+            return ResponseEntity.ok(toModel(reservationOpt.get()));
+        }
+        return ResponseEntity.notFound().build();
     }
 
-    // Crear una nueva reserva
+    // Agregar una nueva reserva con enlaces HATEOAS
     @PostMapping
-    public ResponseEntity<HotelReservation> createReservation(@RequestBody HotelReservation reservation) {
-
-        // Verificar disponibilidad
-        List<HotelReservation> conflictingReservations = reservationRepository
-                .findByRoomNumberAndCheckInDateBeforeAndCheckOutDateAfter(
-                        reservation.getRoomNumber(),
-                        reservation.getCheckOutDate(),
-                        reservation.getCheckInDate());
-        if (!conflictingReservations.isEmpty()) {
-            // message = "La habitación no está disponible en las fechas seleccionadas"
-            return ResponseEntity.badRequest().build();
-
-        }
-
-        HotelReservation savedReservation = reservationRepository.save(reservation);
-        return ResponseEntity.ok(savedReservation);
+    public ResponseEntity<EntityModel<HotelReservation>> addReservation(@RequestBody HotelReservation newReservation) {
+        HotelReservation reservation = reservationRepository.save(newReservation);
+        return ResponseEntity.ok(toModel(reservation));
     }
 
-    // Actualizar una reserva existente
+    // Actualizar una reserva existente con enlaces HATEOAS
     @PutMapping("/{id}")
-    public ResponseEntity<HotelReservation> updateReservation(@PathVariable Integer id,
-            @RequestBody HotelReservation reservationDetails) {
-        Optional<HotelReservation> reservationOptional = reservationRepository.findById(id);
-
-        if (!reservationOptional.isPresent()) {
-            return ResponseEntity.notFound().build();
+    public ResponseEntity<EntityModel<HotelReservation>> updateReservation(@PathVariable Integer id, @RequestBody HotelReservation updatedReservation) {
+        Optional<HotelReservation> existingReservationOpt = reservationRepository.findById(id);
+        if (existingReservationOpt.isPresent()) {
+            updatedReservation.setId(id);
+            HotelReservation updated = reservationRepository.save(updatedReservation);
+            return ResponseEntity.ok(toModel(updated));
         }
-
-        HotelReservation reservation = reservationOptional.get();
-        reservation.setRoomNumber(reservationDetails.getRoomNumber());
-        reservation.setGuestName(reservationDetails.getGuestName());
-        reservation.setCheckInDate(reservationDetails.getCheckInDate());
-        reservation.setCheckOutDate(reservationDetails.getCheckInDate());
-
-        HotelReservation updatedReservation = reservationRepository.save(reservation);
-        return ResponseEntity.ok(updatedReservation);
+        return ResponseEntity.notFound().build();
     }
 
-    // Eliminar una reserva
+    // Eliminar una reserva con enlaces HATEOAS
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteReservation(@PathVariable Integer id) {
-        Optional<HotelReservation> reservation = reservationRepository.findById(id);
-
-        if (!reservation.isPresent()) {
-            return ResponseEntity.notFound().build();
+        if (reservationRepository.existsById(id)) {
+            reservationRepository.deleteById(id);
+            return ResponseEntity.noContent().build();
         }
-
-        reservationRepository.delete(reservation.get());
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.notFound().build();
     }
 
-    // Verificar disponibilidad
-    @GetMapping("/availability")
-    public ResponseEntity<Boolean> checkAvailability(
-            @RequestParam Integer roomNumber,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) Date checkInDate,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) Date checkOutDate) {
+    // Método auxiliar para convertir una entidad en EntityModel con enlaces HATEOAS
+    private EntityModel<HotelReservation> toModel(HotelReservation reservation) {
+        EntityModel<HotelReservation> resource = EntityModel.of(reservation);
 
-        List<HotelReservation> conflictingReservations = reservationRepository
-                .findByRoomNumberAndCheckInDateBeforeAndCheckOutDateAfter(roomNumber, checkOutDate, checkInDate);
+        // Enlace a sí mismo
+        Link selfLink = WebMvcLinkBuilder.linkTo(WebMvcLinkBuilder.methodOn(HotelReservationController.class).getReservationById(reservation.getId())).withSelfRel();
+        resource.add(selfLink);
 
-        boolean isAvailable = conflictingReservations.isEmpty();
-        return ResponseEntity.ok(isAvailable);
+        // Enlace a la colección de reservas
+        Link reservationsLink = WebMvcLinkBuilder.linkTo(WebMvcLinkBuilder.methodOn(HotelReservationController.class).getAllReservations()).withRel("reservations");
+        resource.add(reservationsLink);
+
+        return resource;
     }
 }

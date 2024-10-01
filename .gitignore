@@ -4,6 +4,10 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+.DS_STORE
+wallet/*
+wallet
+
 ### STS ###
 .apt_generated
 .classpath

@@ -3,7 +3,7 @@ package com.example.demo.entity;
 import javax.persistence.*;
 
 import java.io.Serializable;
-import java.sql.Date;
+import java.util.Date;
 
 @Entity
 @Table(name = "hotel_reservations")
@@ -66,6 +66,14 @@ public class HotelReservation implements Serializable {
 
     public void setCheckOutDate(Date checkOutDate) {
         this.checkOutDate = checkOutDate;
+    }
+
+    public void setId(Integer id) {
+        this.id = id;
+    }
+
+    public Integer getId() {
+        return id;
     }
 
 }
